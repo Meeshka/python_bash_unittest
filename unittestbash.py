@@ -6,6 +6,7 @@ class BashFunctionAnalyzer:
         self.script_path = script_path
         self.functions_info = self._extract_functions_info()
         self.function_output = {}
+        self.last_run_function = ""
         self.executed_lines = set()  # To track executed lines
         self.total_lines = self.get_code_lines_count()
         self.output = ""
@@ -72,13 +73,13 @@ class BashFunctionAnalyzer:
                 print(f"Parameters: {info['params']}")
                 print(f"Lines of Code: {info['lines_count']}\n")
 
-    def run_function(self, function_name, function_args=None, mock_commands=None):
+    def run_function(self, function_name, mock_variables=None, function_args=None, mock_commands=None):
         if function_name not in self.functions_info:
             print(f"No function named '{function_name}' found.")
             return
 
         # Prepare the command
-        command = 'bash -x -c "'
+        command = 'bash -c "PS4=\'+ line \${LINENO}: \'; set -x;'
 
         # Source the script and call the function
         command += f'source {self.script_path}; '
@@ -87,6 +88,10 @@ class BashFunctionAnalyzer:
         if mock_commands:
             # Define each mock command as a function
             mock_statements = '; '.join([f'{cmd}() {{ {mock_cmd} \'{mock_data}\'; }}' for cmd, [mock_cmd, mock_data] in mock_commands.items()])
+            command += f"{mock_statements}; "
+
+        if mock_variables:
+            mock_statements = '; '.join([f'export {var}={mock_var}' for var,mock_var in mock_variables.items()])
             command += f"{mock_statements}; "
 
         command += f' {function_name}'
@@ -103,6 +108,7 @@ class BashFunctionAnalyzer:
             self.function_output[function_name] = combined_output
             self.output = result.stdout.strip()  # Capture standard output
             self.status = result.returncode
+            self.last_run_function = function_name
 
             # Track executed lines based on Bash trace output
             in_function = False
@@ -115,13 +121,14 @@ class BashFunctionAnalyzer:
                         self.executed_lines.add((current_func, executed_command))
                         if '[' in executed_command and ']' in executed_command:
                             self.executed_lines.add((current_func, executed_command + " end"))
-                        #print(f"Debug: added line run {executed_command} for {func_name}")
+                        #print(f"Debug: added line run {executed_command} for {current_func}")
                     else:
                         command_parts = executed_command.split()
+                        #print(f"Debug: command parts: {command_parts}")
                         # Check if the executed command corresponds to any function line
                         for i, (func_name, info) in enumerate(self.functions_info.items(), start=1):
                             if func_name in command_parts:
-                                if func_name == command_parts[0]:  # This implies the function ran
+                                if func_name == command_parts[2]:  # This implies the function ran
                                     current_func = func_name
                                     #print(f"Debug: Found function run: {current_func} in {executed_command}")
                                     in_function = True
@@ -140,16 +147,16 @@ class BashFunctionAnalyzer:
 
     def assert_run_once(self, command):
         # Count occurrences of the command in the output with a '+' prefix
-        output = self.get_function_output(list(self.functions_info.keys())[0])  # Assuming analysis on the first function run
-        command_pattern = fr'^\+ {command}'
+        output = self.get_function_output(self.last_run_function)  # Assuming analysis on the first function run
+        command_pattern = fr'^\+ line \d+: {command}'
         count = sum(1 for line in output if re.match(command_pattern, line))
         
         assert count == 1, f"Expected '{command}' to run exactly once, but found {count} times."
     
     def assert_call_number(self, command, number):
         # Count occurrences of the command in the output with a '+' prefix
-        output = self.get_function_output(list(self.functions_info.keys())[0])  # Assuming analysis on the first function run
-        command_pattern = fr'^\+ {command}'
+        output = self.get_function_output(self.last_run_function)  # Assuming analysis on the first function run
+        command_pattern = fr'^\+ line \d+: {command}'
         count = sum(1 for line in output if re.match(command_pattern, line))
         
         assert count == number, f"Expected '{command}' to run exactly {number} times, but found {count} times."
