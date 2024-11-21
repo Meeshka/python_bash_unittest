@@ -1,7 +1,7 @@
 The python class that can run external bash scripts as standard unittest module.
 Class is set to work only with function structured scripts. If you have spaghetti code, 
 put it at least to the main().
-One day my boss came and said that we have a huge project written in bash and that new standards 
+One day my boss came and said THat we have a huge project written in bash and that new standards 
 demand the unit testing automation and acceptance testing. I was shocked but had to find a way to make
 the tests. To my disappointment, I couldn't find any existing solution that knows how to run the 
 tests as close to python library, as possible. Bats, shunit2, bcov, kcov. Either complicated to use, 
