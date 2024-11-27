@@ -1,2 +1,2 @@
 import unittestbash
-from .unittestbash import BashFunctionAnalyzer
+from .unittestbash import BashFunctionAnalyzer, patch_bash

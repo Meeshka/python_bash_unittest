@@ -1,6 +1,20 @@
 import re
 import subprocess
+from functools import wraps
 
+def patch_bash(key, value=None, side_effect=None):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if side_effect:
+                for value_set in side_effect:
+                    kwargs[key] = value_set
+                    func(*args, **kwargs)
+            else:
+                if value: kwargs[key] = value
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 class BashFunctionAnalyzer:
     def __init__(self, script_path):
@@ -53,6 +67,7 @@ class BashFunctionAnalyzer:
                 # Capture function content if inside a function
                 if in_function:
                     cleaned_line = line.split('#', 1)[0].rstrip() # remove comments to escape garbage content
+                    cleaned_line = cleaned_line.replace(';;','')
                     stripped_line = cleaned_line.strip()
                     if stripped_line and not stripped_line.startswith('#') and stripped_line != '}':
                         # Split the line by '&&' and process each command
@@ -101,6 +116,7 @@ class BashFunctionAnalyzer:
             r'^\s*done.*?$',  # Done keyword
             r'^\s*case.*?$',  # Case statement
             r'^\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\|\s*[a-zA-Z_][a-zA-Z0-9_]*\)\s*$', # case option alone in line
+            r'^\"?[a-zA-Z0-9_*]*\"?\)$', # case option alone in line
             r'^\s*esac.*?$',  # Esac keyword
             r'^.*?\[\[\s.*\s?(?:<|>|<=|>=|<>|==|!=|-eq|-ne|-lt|-le|-gt|-ge)\s.*?\]\].*?$',  # Double brackets condition [[ ... ]]
             #r'^.*?\[\s.*\s?(?:<|>|<=|>=|<>|==|!=|-eq|-ne|-lt|-le|-gt|-ge)\s.*?\].*?$',  # Single brackets condition [ ... ]
@@ -213,7 +229,7 @@ class BashFunctionAnalyzer:
                 command += f'echo var_{variable}=\\${variable}; '
         command += '"'
 
-        #print(f"Debug: resulting command: {command}")
+        print(f"Debug: resulting command: {command}")
         try:
             result = subprocess.run(command, shell=True, text=True, capture_output=True, check=True)
             combined_output = result.stdout.splitlines() + result.stderr.splitlines()
@@ -337,3 +353,4 @@ class BashFunctionAnalyzer:
             print("Code lines for all functions:")
             for func, code_line in self.code_lines:
                 print(f"Function '{func}': {code_line}")
+
