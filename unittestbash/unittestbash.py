@@ -17,7 +17,7 @@ def patch_bash(key, value=None, side_effect=None):
     return decorator
 
 class BashFunctionAnalyzer:
-    def __init__(self, script_path):
+    def __init__(self, script_path=None):
         self.script_path = script_path
         self.function_output = {}
         self.global_variables = {}
@@ -149,59 +149,66 @@ class BashFunctionAnalyzer:
                 print(f"Parameters: {info['params']}")
                 print(f"Lines of Code: {info['lines_count']}\n")
 
-    def _process_output_lines(self, combined_output, lines_set):
+    def _process_output_lines(self, combined_output, lines_set, function_name):
+        processed_output = combined_output
         in_function = False
-        current_func = ""
-        counted_line_1 = False
         for line in combined_output:
-            is_line_1 = False
-            if line.startswith("+ "):
-                executed_command = line[2:]  # Remove the leading "+ "
+            #print(f"Debug: Line: {line}")
+            line_pattern = r'^\+\+? (line \d{1,}:) (.+)$'
+            line_match = re.match(line_pattern,line)
+            if not line_match:
+                continue
+
+            #print(f"Debug: Line to analyze: {line}")
+            # validate for function name OR variable echo
+            pattern = r"^\+ line [012]:"
+            match_command_line = re.match(pattern, line)
+            if match_command_line:
+                #print(f"Debug: Line from external command: {line}")
+                # Validate for variable value
+                var_pattern = r"^\+ line [12]: echo var_(.+)=(.+)$"
+                var_match = re.match(var_pattern, line)
+                if var_match:
+                    processed_output.append(f"+ line 0: variable {var_match.group(1)}={var_match.group(2)}")
+
+                # Validate for function name
+                func_pattern = r'^\+ line [12]: ' + function_name + '\\s?(.+)?$'
+                func_match = re.match(func_pattern, line)
+                if func_match:
+                    in_function = True
+                    lines_set.add((function_name,f"line 1: {function_name}"))
+            else:
+                #print(f"Debug: Regular code line: {line}")
+                inline_command_pattern = r'^\+\+ (line \d{1,}:) (.+)$'
+                inline_command_match = re.match(inline_command_pattern,line)
+                executed_command = f"{line_match.group(1)} {line_match.group(2)}"
                 command_parts = executed_command.split()
                 #print(f"Debug: {command_parts}")
-                pattern = r"^\+ line [12]:"
-                if re.match(pattern, line):
-                    is_line_1 = True
-                    #print(f"Debug: line 1 : {executed_command}")
 
-                    if in_function:
-                        continue
-
-                    if counted_line_1:
-                        #print(f"Debug: skipped line : {executed_command}")
-                        continue
-                    else:
-                        # print(f"Debug: command parts: {command_parts}")
-                        # Check if the executed command corresponds to any function line
-                        for i, (func_name, info) in enumerate(self.functions_info.items(), start=1):
-                            if func_name in command_parts:
-                                if func_name == command_parts[2]:  # This implies the function ran
-                                    current_func = func_name
-                                    in_function = True
-                                    lines_set.add((func_name, f"line 1: {func_name}"))
-                                    #print(f"Debug: added executed command: {executed_command}")
-                                    counted_line_1 = True
-
-                if in_function and not is_line_1:
+                if in_function:
                     #print(f"Debug: in control structure {self._is_control_structure(executed_command)}")
                     if not self._is_control_structure(executed_command):
-                        lines_set.add((current_func, f"{command_parts[0]} {command_parts[1]}"))
-                        #print(f"Debug: added executed command: {executed_command}")
+                        local_var_pattern = r"line \d{1,}: ?(local |)\'?(\S+)=(\S+);?\'?$"
+                        local_var_match = re.match(local_var_pattern, executed_command)
+                        if local_var_match:
+                            processed_output.append(f"+ line 0: variable {local_var_match.group(2)}={local_var_match.group(3)}")
+                            #print(f"Debug: added variable: {local_var_match.group(2)}={local_var_match.group(3)}")
 
+                        if inline_command_match:
+                            processed_output.append(f"+ {inline_command_match.group(1)} {inline_command_match.group(2)}")
+                            #print(f"Debug: added executed command to output: {inline_command_match.group(2)}")
+                        else:
+                            lines_set.add((function_name, f"{command_parts[0]} {command_parts[1]}"))
+                            #print(f"Debug: added executed command: {line_match.group(2)}")
+        return processed_output
 
-    def run_function(self,
-                     function_name,
-                     mock_variables=None,
-                     function_args=None,
-                     mock_commands=None,
-                     mock_read_values=None,
-                     show_variables=None):
+    def run_function(self, function_name, mock_variables=None, function_args=None, mock_commands=None, mock_read_values=None, show_variables=None):
         if function_name not in self.functions_info:
             print(f"No function named '{function_name}' found.")
             return
 
         # Prepare the command
-        command = 'bash -c "PS4=\'+ line \${LINENO}: \'; set -x; '
+        command = 'bash -c "PS4=\'+ line \\${LINENO}: \'; set -x; '
 
         # Source the script and call the function
         command += f'source {self.script_path}; '
@@ -245,7 +252,7 @@ class BashFunctionAnalyzer:
             self.last_run_function = function_name
 
             # Track executed lines based on Bash trace output
-            self._process_output_lines(combined_output, self.executed_lines)
+            processed_output = self._process_output_lines(combined_output, self.executed_lines, function_name=function_name)
 
         except subprocess.CalledProcessError as e:
             print(f"An error occurred while executing the function: {e}")
@@ -258,7 +265,7 @@ class BashFunctionAnalyzer:
 
     def assert_run_once(self, command):
         # Count occurrences of the command in the output with a '+' prefix
-        output = self.get_function_output(self.last_run_function)  # Assuming analysis on the first function run
+        output = self.get_function_output(self.last_run_function)  # Assuming analysis on the last function run
         command_pattern = fr'^\+ line \d+: {re.escape(command)}'
         count = sum(1 for line in output if re.match(command_pattern, line))
 
@@ -294,8 +301,8 @@ class BashFunctionAnalyzer:
             total_lines = self.total_lines
             covered_lines = len(self.executed_lines)
 
-        if total_lines == 0:
-            return 0.0
+            if total_lines == 0:
+                return 0.0
 
         coverage = (covered_lines / total_lines) * 100
         return coverage
@@ -323,18 +330,38 @@ class BashFunctionAnalyzer:
         if self.status == 0:
             raise AssertionError(f"Assertion failed: status is OK, expected NOK")
 
+    def _get_local_variable(self, var_name):
+        output = self.get_function_output(self.last_run_function)
+        var_reg = r'^\+ line 0: variable ' + var_name + '=(.+)$'
+        variable_value = None
+        for line in output:
+            #print(f"Debug: line check {line}")
+            var_match = re.match(var_reg, line)
+            if var_match:
+                #print(f"Debug: match found {var_match}")
+                variable_value = var_match.group(1)
+        return variable_value
+
     def get_variable_value(self, var_name):
         variable_value = self.global_variables.get(var_name)
         if variable_value:
             return variable_value
         else:
-            print(f"No variable '{var_name}' found")
+            #print(f"Debug: local variable check {var_name}")
+            variable_value = self._get_local_variable(var_name)
+            if variable_value:
+                return variable_value
+
+        print(f"No variable '{var_name}' found")
+
+    def _get_executed_lines(self, function_name):
+        return [line for func, line in self.executed_lines if func == function_name]
 
     def show_executed_lines(self, function_name=None):
         if function_name:
             print(f"Executed lines for function '{function_name}':")
             # Filter the executed lines by the specified function name
-            found_lines = [line for func, line in self.executed_lines if func == function_name]
+            found_lines = self._get_executed_lines(function_name)
             if found_lines:
                 for executed_line in found_lines:
                     print(f" - {executed_line}")

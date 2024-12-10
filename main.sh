@@ -19,6 +19,71 @@ get_remote_time() {
     echo "Current time (remote): $response"
 }
 
+prompt_backup_confirmation() {
+    read -p "Do you want to create a backup for this device? (yes/no): " confirm
+    if [[ "$confirm" == "no" ]]; then
+        echo "Backup operation canceled by user."
+        exit 0
+    elif [[ "$confirm" == "yes" ]]; then
+        echo "Backup operation started by user."
+        exit 0
+    else
+        echo "Unknown choice."
+        exit 1
+    fi
+}
+
+check_mysql_service() {
+    local result=0
+    status=$(sudo monit status mysqld | grep "status" | grep "OK")
+    if [ -n "$status" ]; then
+      echo "MySQL service is running."
+    else
+      result=1
+      echo "MySQL service is not running. Attempting to start MySQL..."
+      sudo monit start mysqld > /dev/null 2>&1
+      sleep 5
+
+        status=$(sudo monit status mysqld | grep "status" | grep "OK")
+        if [ -n "$status" ]; then
+          echo "MySQL service started successfully."
+          result=0
+        fi
+    fi
+
+    exit $result
+}
+
+stop_service() {
+    service_name=$1
+    result=1
+    retry_count=10
+
+    status=$(sudo monit status "$service_name" | grep "Not monitored")
+
+    if [ -n "$status" ]; then
+        result=0
+    else
+      while true; do
+        ((retry_count-=1))
+
+        if [ $retry_count -le 0 ]; then
+          break
+        fi
+
+        sudo monit stop "$service_name" > /dev/null 2>&1
+        sleep 5
+
+        status=$(sudo monit status "$service_name" | grep "Not monitored")
+        if [ -n "$status" ];then
+            result=0
+            break
+        fi
+      done
+    fi
+    exit $result
+}
+
 make_api_request() {
     URL="http://fake-api.url.com"
     AUTH_TOKEN="Bearer ey12345zx"
