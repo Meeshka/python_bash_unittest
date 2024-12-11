@@ -1,9 +1,10 @@
 #!/bin/bash
 
+LOG_FILE=/home/tech/technician.log
+
 say_hello() {
     echo "Hello, World!"
 }
-
 
 get_local_time() {
 
@@ -84,32 +85,59 @@ stop_service() {
     exit $result
 }
 
-make_api_request() {
-    URL="http://fake-api.url.com"
-    AUTH_TOKEN="Bearer ey12345zx"
+log_message() {
+    local message="$1"
+    local type="$2"
+    local color="$NC"
 
-    # Capture the response in a variable
-    response=$(curl -s -X GET "$URL" \
-     -H "Authorization: $AUTH_TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{ "FakeKey1": "Value1", "FakeKey2": "Value2" }')
+    case "$type" in
+        "info")
+            color="$LIGHT_GREEN"
+            ;;
+        "warning")
+            color="$YELLOW"
+            ;;
+        "error")
+            color="$RED"
+            ;;
+    esac
 
-    # Echo the response
-    if [ -z "$response" ]; then
-        echo "Response from server: Not for fake API"
-    else
-        echo "Response from server: $response"
-    fi
+    # Log to the console with color
+    echo -e "${color}[${type^^}] $message${NC}"
+
+    # Log to the log file without color
+    echo "$(date +%D_%T) : [${type^^}] $message" >> $LOG_FILE
 }
 
 main() {
-    say_hello
-    get_local_time
-    get_remote_time
-    make_api_request
+  printf "## 'h': say hello world                       ##\n"
+  printf "## 't': show local time                       ##\n"
+  printf "## 'o': show online time                      ##\n"
+  printf "## 'b': simulate backup request               ##\n"
+  printf "## 'c': simulate validation of mysql service  ##\n"
+  printf "## 's': simulate service stop                 ##\n"
+  printf "## 'l': simulate log message                  ##\n"
+  read -e -p "Enter your command : "  testcommand
+  while [ "$testcommand" != "q" ];
+
+  do
+    case $testcommand in
+        h)  say_hello                         ;;
+        t)  get_local_time                    ;;
+        o)  get_remote_time                   ;;
+        b)  prompt_backup_confirmation        ;;
+        c)  check_mysql_service               ;;
+        s)  stop_service "mysql"              ;;
+        l)  log_message "test message" "info" ;;
+        *) printf "\n## Command doesn't exist. ##\n" ;;
+    esac
+    read -e -p "Enter your command : "  testcommand
+  done
+
+  printf "##      Thanks for using  testcommand see you next time...!        ##\n" # ------------------------------------------------------------|
+
 }
 
-
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]}" == "${0}" || "${0}" == "/bin/bash" ]]; then
     main
 fi

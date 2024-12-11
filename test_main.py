@@ -346,6 +346,80 @@ class TestMain(unittest.TestCase):
         self.analyzer.assert_run_once("exit 1")
         self.analyzer.assertStatusOK()
 
+    @patch_bash('function_args',side_effect=[
+                                        ["\'test message\'",'info'],
+                                        ["\'test message\'",'warning'],
+                                        ["\'test message\'",'error']])
+    @patch_bash('mock_variables',{'LOG_FILE': '.\\test_log.log'})
+    def test_log_message(self,
+                              mock_variables,
+                              function_args,
+                              function_name='log_message'):
+        print(f"Test function: {function_name} {function_args[1].upper()}")
+
+        self.analyzer.run_function(function_name,
+                               mock_variables=mock_variables,
+                               function_args=function_args
+                               )
+        self.analyzer.assert_call_number('echo', 2)  # Adjust this based on your actual commands
+        self.analyzer.assertOutputMatchesRegex(r'^.+\[' + function_args[1].upper() + '\] test message.+$')
+
+        self.tested_functions.add(function_name)
+        #self.analyzer.show_code_lines(function_name)
+        #self.analyzer.show_executed_lines(function_name)
+        self.analyzer.assertStatusOK()
+
+    @patch_bash('mock_commands',{
+        'say_hello': ['echo', 'say_hello'],
+        'get_local_time': ['echo', 'get_local_time'],
+        'check_mysql_service': ['echo', 'check_mysql_service'],
+        'get_remote_time': ['echo', 'get_remote_time'],
+        'prompt_backup_confirmation': ['echo', 'prompt_backup_confirmation'],
+        'stop_service': ['echo', 'stop_service'],
+        'log_message': ['echo', 'log_message']
+    })
+    def test_main(self,
+                  mock_commands,
+                  function_name="main"):
+        print(f"Test function: {function_name}")
+        mock_functions_base = {
+        }
+
+        menu_options = {
+            "h": ["say_hello"],
+            "t": ['get_local_time'],
+            "o": ["get_remote_time"],
+            "b": ["prompt_backup_confirmation"],
+            "c": ["check_mysql_service"],
+            "s": ["stop_service"],
+            "l": ["log_message"],
+            "n": [],
+            "q": []
+        }
+
+        for key in menu_options:
+            # mock_commands reset (less commands)
+            mock_commands_iter = mock_commands.copy()
+            #mock_variables["techcommand"] = key
+            for mock_command in menu_options[key]:
+                mock_commands_iter[mock_command] = ['echo', mock_command]
+
+            mock_read_values = [
+                key,
+                "q"
+            ]
+            self.analyzer.run_function(function_name,
+                                       mock_commands=mock_commands,
+                                       mock_read_values=mock_read_values)
+            #print(self.analyzer.get_function_output(function_name))
+
+            for mock_command in menu_options[key]:
+                self.analyzer.assert_run_once(f"echo {mock_command}")
+
+        #self.analyzer.show_executed_lines(function_name)
+        #self.analyzer.show_code_lines(function_name)
+        self.tested_functions.add(function_name)
+        self.analyzer.assertStatusOK()
 
 if __name__ == '__main__':
     unittest.main()
